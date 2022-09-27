@@ -1,0 +1,128 @@
+Connect to the instance using SSH
+---------------------------------
+ssh -i "D:\path\to\private\key.pem" user@Public_DNS
+ssh -i "MyVM.pem" ec2-user@ec2-54-92-245-199.compute-1.amazonaws.com
+
+-----exclude
+wget --no-check-certificate -c --header "Cookie: oraclelicense=accept-securebackup-cookie" https://download.oracle.com/java/17/archive/jdk-17.0.1_linux-x64_bin.rpm
+
+sudo rpm -i 
+----------
+Install and setup Docker and Docker-compose
+-------------------------------------
+sudo yum update -y
+sudo yum install docker
+sudo curl -L "https://github.com/docker/compose/releases/download/1.29.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+sudo gpasswd -a $USER docker
+newgrp docker
+
+
+
+Start the docker
+----------------------------------
+sudo systemctl start docker
+
+
+Copy folder from local to ec2 and give required permissions
+------------------------------------------------------------
+scp -r -i "dezyre.pem" docker_exp ec2-user@ec2-54-92-245-199.compute-1.amazonaws.com:/home/ec2-user/docker_exp
+D:\>scp -r -i "MyVM.pem" ProjectProCode/Covid-19/docker_exp ec2-user@ec2-54-92-245-199.compute-1.amazonaws.com:/home/ec2-user/docker_exp
+
+sudo chmod -R 755 docker_exp
+
+Change directory to docker_exp
+-----------------------
+ocd docker_exp
+List files with permissions
+ls -l
+
+Run shell script airflow_init.sh after starting the docker
+-------------------------------------------------------------
+./airflow_init.sh
+3 new folders named ‘dags’, ‘logs’ and ‘plugins’ will be created
+
+move airflow DAG scripts to dags folder
+------------------------------------------------
+mv -t dags hive_script.py hive_connection.py
+
+run the docker
+----------------------------
+cd dags
+docker-compose up
+
+
+port forwrding
+----------------------------
+ssh -i "MyVM.pem" ec2-user@ec2-54-92-245-199.compute-1.amazonaws.com -o "ServerAliveInterval 30" -L 2081:localhost:2041 -L 4888:localhost:4888 -L 4889:localhost:4889 -L 2080:localhost:2080 -L 8050:localhost:8050 -L 8051:localhost:8051 -L 4141:localhost:4141 -L 4090:localhost:4090 -L 3180:localhost:3180 -L 50075:localhost:50075 -L 50070:localhost:50070 -L 50010:localhost:50010 -L 3077:localhost:3077 -L 4080:localhost:4080 -L 9870:localhost:9870 -L 8188:localhost:8188 -L 9864:localhost:9864 -L 8042:localhost:8042 -L 8088:localhost:8088 -L 8080:localhost:8080 -L 8081:localhost:8081 -L 10000:localhost:10000 -L 6080:localhost:6080 -L 8998:localhost:8998
+
+
+check for docker running
+--------------------------
+docker ps
+
+To connect to different services locally after port forwarding 
+----------------------------------------------------------------
+http://localhost:4888/lab?- jupyterlab
+http://localhost:6080/ - airflow (username & password- airflow)
+http://localhost:8080/ -spark master
+http://localhost:2080/nifi/- nifi
+
+
+To get into bash shell of different containers
+----------------------------------------------
+docker exec -i -t <container name> bash
+docker exec -i -t hdp_namenode bash (for hadoop )
+docker exec -i -t hdp_spark-master bash
+docker exec -i -t hdp_hive-server bash 
+
+To exit from any container’s bash shell
+-----------------------------------------------------
+ctrl+D
+
+To execute both the nifi pipelines (1. Before spark job for HDFS and Kafka and
+2. After spark job)
+---------------------------------------------------------------------------------
+Goto http://localhost:2080/nifi/ 
+Upload and use template NifiCovidTemplate.xml (covid_proj_final_nifi)
+Open Process group “EncryptionTemplate-v1.3” goto “EncryptContent” -> Configure -> Properties, and set Password to a 10-character string (eg. ‘dezyre1234’)
+
+To access data pushed to hadoop from nifi
+----------------------------------------------------------------
+docker exec -i -t hdp_namenode bash
+hadoop fs -ls /dezyre_data/corona-table
+hadoop fs -ls /dezyre_data/dezyre_kafka_out  (after executing spark job and 2nd nifi pipeline)
+
+To access data published to kafka topic from nifi
+-------------------------------------------
+docker exec -i -t hdp_kafka bash
+cd /opt/kafka_2.12-2.5.0
+bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --from-beginning --topic dezyre_data_csv (change kafka topic name accordingly)
+
+To run spark-submit job to publish data to kafka topic
+-------------------------------------------------------------------
+ cp /home/ec2-user/docker_exp/test.py hdp_spark-master:/test.py
+ exec -i -t hdp_spark-master bash
+chmod 755 test.py
+./spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.0.0 --master local[2] test.py
+
+To create external hive table or run queries
+-------------------------------------------------------------
+docker exec -i -t hdp_hive-server bash
+hive
+Run the queries from corona_data.hql and processed_data.hql to create external tables for both
+
+Setup up Airflow for hive access
+--------------------------------------
+Open airflow dashboard through localhost
+Create connection with 
+Conn Id = hive_local
+Conn Type = Hive Client Wrapper
+ Host = hiveserver
+Login = hive
+password = hive
+port = 10000
+
+
+
+
